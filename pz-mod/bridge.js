@@ -4,7 +4,7 @@ const http = require('http');
 
 // CONFIG
 const LOG_FILE_PATH = process.env.LOG_FILE_PATH || path.join(__dirname, 'profiles/pzserver/Lua/POTD_Log.txt'); // Adjust for actual server path
-const API_URL = process.env.API_URL || 'http://localhost:3000';
+const API_URL = process.env.API_URL || 'http://66.118.234.45:3000';
 const API_KEY = process.env.PZ_API_KEY || 'thisisatest';
 
 console.log(`Starting POTD Bridge...`);
@@ -23,28 +23,26 @@ if (!fs.existsSync(LOG_FILE_PATH)) {
     }
 }
 
-// TAIL LOGIC
-let currentSize = fs.statSync(LOG_FILE_PATH).size;
+// TAIL LOGIC (ROBUST POLLING)
+const { spawn } = require('child_process');
 
-fs.watchFile(LOG_FILE_PATH, { interval: 1000 }, (curr, prev) => {
-    if (curr.size > prev.size) {
-        const stream = fs.createReadStream(LOG_FILE_PATH, {
-            start: prev.size,
-            end: curr.size
-        });
+// TAIL LOGIC (NATIVE TAIL - LINUX ONLY)
+// We use 'tail -F' (capital F) to follow by name and retry if file is recreated/truncated
+const tail = spawn('tail', ['-F', '-n', '0', LOG_FILE_PATH]);
 
-        stream.on('data', (chunk) => {
-            const lines = chunk.toString().split('\n');
-            lines.forEach(line => processLine(line.trim()));
-        });
-
-        currentSize = curr.size;
-    } else if (curr.size < prev.size) {
-        // File truncated/rotated
-        currentSize = curr.size;
-        console.log("Log file truncated.");
-    }
+tail.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+        const cleanLine = line.trim();
+        if (cleanLine.length > 0) processLine(cleanLine);
+    });
 });
+
+tail.stderr.on('data', (data) => {
+    console.error(`[TAIL ERROR]: ${data}`);
+});
+
+console.log("Tail process started.");
 
 function processLine(line) {
     if (!line) return;
@@ -55,8 +53,8 @@ function processLine(line) {
     if (line.startsWith("AUTH|")) {
         const parts = line.split("|");
         if (parts.length >= 3) {
-            const username = parts[1];
-            const code = parts[2];
+            const username = parts[1].trim();
+            const code = parts[2].trim(); // CRITICAL: Trim \r or \n
             console.log(`[AUTH] Syncing code for ${username}`);
             sendToApi('/api/pz/add-code', { username, code });
         }
@@ -79,9 +77,12 @@ function processLine(line) {
 function sendToApi(endpoint, data) {
     const postData = JSON.stringify(data);
 
+    // Parse the full API URL configured at top
+    const baseUrl = new URL(API_URL); // e.g. http://66.118.234.45:3000
+
     const options = {
-        hostname: 'localhost',
-        port: 3000,
+        hostname: baseUrl.hostname,
+        port: baseUrl.port || (baseUrl.protocol === 'https:' ? 443 : 80),
         path: endpoint,
         method: 'POST',
         headers: {
@@ -96,6 +97,8 @@ function sendToApi(endpoint, data) {
             console.error(`[API] Error ${res.statusCode} on ${endpoint}`);
             // res.setEncoding('utf8');
             // res.on('data', (chunk) => console.log(chunk));
+        } else {
+            console.log(`[API] Success (200) on ${endpoint}`);
         }
     });
 

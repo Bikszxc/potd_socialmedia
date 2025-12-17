@@ -1,32 +1,39 @@
-"use client"
-
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Calendar, MapPin, Shield, Swords, Trophy, Users } from "lucide-react"
+import { Calendar, MapPin, Shield, Users } from "lucide-react"
 import { LiveCharacterStats } from "@/components/profile/live-character-stats"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { redirect } from "next/navigation"
 
-export default function ProfilePage() {
-    // Mock User Data
-    const user = {
-        username: "Survivor_01",
-        inGameName: "Rick Grimes",
-        discordName: "Rick#1234",
-        faction: "The Survivors",
-        joinDate: "Oct 2024",
-        location: "Muldraugh",
-        role: "Leader",
-        stats: {
-            zombiesKilled: 1243,
-            daysSurvived: 45,
-            hoursPlayed: 120
-        }
+export default async function ProfilePage() {
+    const session = await getServerSession(authOptions)
+
+    if (!session || !session.user) {
+        redirect("/auth/signin")
     }
 
-    // Mock Posts Data
+    const userData = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        include: {
+            characters: {
+                where: { isAlive: true }
+            }
+        }
+    })
+
+    if (!userData) {
+        return <div>User not found.</div>
+    }
+
+    const activeChar = userData.characters[0]
+    const inGameName = activeChar ? activeChar.fullName : "No Active Character"
+
+    // Mock Posts Data (Keep for now until posts system is built)
     const posts = [
         {
             id: 1,
@@ -35,13 +42,6 @@ export default function ProfilePage() {
             likes: 15,
             comments: 3
         },
-        {
-            id: 2,
-            content: "Does anyone have a spare generator manual? willing to trade.",
-            time: "5 days ago",
-            likes: 8,
-            comments: 7
-        }
     ]
 
     return (
@@ -57,17 +57,17 @@ export default function ProfilePage() {
                     {/* Avatar - overlaps cover */}
                     <div className="flex flex-col md:flex-row gap-6 items-start -mt-16">
                         <Avatar className="w-32 h-32 border-4 border-background shadow-xl">
-                            <AvatarImage src="/placeholder-avatar.jpg" />
-                            <AvatarFallback className="text-4xl">RG</AvatarFallback>
+                            <AvatarImage src={session.user.image || "/placeholder-avatar.jpg"} />
+                            <AvatarFallback className="text-4xl">{userData.name?.slice(0, 2).toUpperCase() || "SU"}</AvatarFallback>
                         </Avatar>
 
                         <div className="flex-1 mt-16 md:mt-2 space-y-2">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
-                                    <h1 className="text-3xl font-bold">{user.username}</h1>
+                                    <h1 className="text-3xl font-bold">{userData.username || userData.name}</h1>
                                     <p className="text-muted-foreground flex items-center gap-2">
                                         <Shield className="w-4 h-4" />
-                                        {user.inGameName}
+                                        {inGameName}
                                     </p>
                                 </div>
                                 <div className="flex gap-2">
@@ -79,15 +79,15 @@ export default function ProfilePage() {
                             <div className="flex flex-wrap gap-4 pt-2">
                                 <Badge variant="secondary" className="px-3 py-1 text-sm bg-primary/10 text-primary hover:bg-primary/20 border-primary/20">
                                     <Users className="w-3 h-3 mr-1" />
-                                    {user.faction}
+                                    {userData.faction || "No Faction"}
                                 </Badge>
                                 <div className="flex items-center text-sm text-muted-foreground">
                                     <MapPin className="w-4 h-4 mr-1" />
-                                    {user.location}
+                                    Muldraugh (Last Known)
                                 </div>
                                 <div className="flex items-center text-sm text-muted-foreground">
                                     <Calendar className="w-4 h-4 mr-1" />
-                                    Joined {user.joinDate}
+                                    Joined {userData.createdAt.toLocaleDateString()}
                                 </div>
                             </div>
                         </div>
@@ -108,10 +108,10 @@ export default function ProfilePage() {
                         <CardContent className="space-y-4 text-sm">
                             <div className="grid grid-cols-2 gap-2">
                                 <span className="text-muted-foreground">Discord</span>
-                                <span className="font-mono text-xs bg-muted p-1 rounded text-center">{user.discordName}</span>
+                                <span className="font-mono text-xs bg-muted p-1 rounded text-center truncate">{userData.email || "Linked"}</span>
 
                                 <span className="text-muted-foreground">Role</span>
-                                <span>{user.role}</span>
+                                <span>{userData.role}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -131,11 +131,11 @@ export default function ProfilePage() {
                                 <Card key={post.id}>
                                     <CardHeader className="flex flex-row items-center gap-4">
                                         <Avatar>
-                                            <AvatarImage src="/placeholder-avatar.jpg" />
+                                            <AvatarImage src={session.user?.image || "/placeholder-avatar.jpg"} />
                                             <AvatarFallback>RG</AvatarFallback>
                                         </Avatar>
                                         <div>
-                                            <h4 className="font-semibold">{user.username}</h4>
+                                            <h4 className="font-semibold">{userData.username || userData.name}</h4>
                                             <p className="text-xs text-muted-foreground">{post.time}</p>
                                         </div>
                                     </CardHeader>
