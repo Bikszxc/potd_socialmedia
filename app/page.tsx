@@ -1,47 +1,63 @@
-"use client"
-
 import Link from "next/link"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { AuthScreen } from "@/components/auth/auth-screen"
 
-import { useSession } from "next-auth/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
-import { Image as ImageIcon, Send, User } from "lucide-react"
+import { Image as ImageIcon, Send } from "lucide-react"
+import { Header } from "@/components/layout/header"
 
-import { AuthScreen } from "@/components/auth/auth-screen"
+export default async function Home() {
+  const session = await getServerSession(authOptions)
 
-export default function Home() {
-  const { data: session, status } = useSession()
-
-  // 1. Loading State
-  if (status === "loading") {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
-  }
-
-  // 2. Unauthenticated State -> Show Auth Screen (Login Mode)
-  if (status === "unauthenticated") {
+  // 1. Unauthenticated -> Show Auth Screen
+  if (!session || !session.user) {
     return <AuthScreen initialStep={1} />
   }
 
-  // 3. Authenticated but Unverified -> Show Auth Screen (Verify Mode)
-  if (status === "authenticated" && !session?.user?.isVerified) {
+  // 2. Unverified -> Show Auth Screen (Verify Mode)
+  // We need to fetch the fresh user data to know isVerified status reliably
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    include: {
+      characters: {
+        where: { isAlive: true }
+      },
+      factionJoined: {
+        include: { faction: true }
+      }
+    }
+  })
+
+  if (!dbUser) return <div>User not found</div>
+
+  if (!dbUser.isVerified) {
     return <AuthScreen initialStep={2} />
   }
 
-  // Mock data for display until real data is hooked up
-  const user = {
-    username: session?.user?.username || "Survivor_01",
-    inGameName: "Rick Grimes",
-    discordName: "Rick#1234",
-    faction: "The Survivors",
-    friends: 12,
-    marketplaceListings: 3
+  // 3. Authenticated & Verified -> Show Dashboard
+  const activeChar = dbUser.characters[0]
+
+  const userDisplay = {
+    username: dbUser.username || dbUser.name || "Survivor",
+    inGameName: activeChar ? activeChar.fullName : "No Active Character",
+    discordName: dbUser.discordId || "Not Linked", // Discord ID is usually the snowflake, but if we stored the tag, use that. 
+    // Wait, typical Discord Oauth stores ID. If we want tag we need to fetch it or have stored it. 
+    // For now showing ID or just "Linked" is better than placeholder.
+    faction: dbUser.factionJoined?.faction.name || "No Faction",
+    image: session.user.image,
+    // Placeholders for now
+    friends: 0,
+    marketplaceListings: 0
   }
 
+  // Mock Posts (To be replaced later)
   const posts = [
     {
       id: 1,
@@ -61,20 +77,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header/Nav would go here */}
-      <header className="h-16 border-b border-border bg-card flex items-center px-8 sticky top-0 z-10 backdrop-blur-md bg-opacity-80">
-        <h1 className="text-xl font-bold text-primary">Pinya Social</h1>
-        <div className="ml-auto flex items-center gap-4">
-          {/* Simple placeholder nav */}
-          <Button variant="ghost">Marketplace</Button>
-          <Button variant="ghost">Factions</Button>
-          <Link href="/profile">
-            <Avatar>
-              <AvatarFallback>RG</AvatarFallback>
-            </Avatar>
-          </Link>
-        </div>
-      </header>
+      <Header />
 
       <main className="container mx-auto p-4 lg:p-8 flex gap-6">
         {/* Left Sidebar - Profile Summary */}
@@ -82,16 +85,18 @@ export default function Home() {
           <Card className="border-border shadow-lg bg-card/50">
             <CardHeader className="text-center pb-2">
               <Avatar className="w-24 h-24 mx-auto border-4 border-primary">
-                <AvatarImage src="/placeholder-avatar.jpg" />
-                <AvatarFallback className="text-2xl bg-muted text-muted-foreground">{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                <AvatarImage src={userDisplay.image || "/placeholder-avatar.jpg"} />
+                <AvatarFallback className="text-2xl bg-muted text-muted-foreground">
+                  {userDisplay.username.slice(0, 2).toUpperCase()}
+                </AvatarFallback>
               </Avatar>
-              <CardTitle className="mt-4 text-xl">{user.username}</CardTitle>
-              <p className="text-sm text-muted-foreground">{user.inGameName}</p>
+              <CardTitle className="mt-4 text-xl">{userDisplay.username}</CardTitle>
+              <p className="text-sm text-muted-foreground">{userDisplay.inGameName}</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-center gap-2">
                 <Badge variant="outline" className="border-primary text-primary bg-primary/10">
-                  {user.faction}
+                  {userDisplay.faction}
                 </Badge>
               </div>
 
@@ -99,20 +104,25 @@ export default function Home() {
 
               <div className="text-sm space-y-2">
                 <div className="flex justify-between">
+                  {/* Truncate Discord ID if too long */}
                   <span className="text-muted-foreground">Discord</span>
-                  <span>{user.discordName}</span>
+                  <span title={userDisplay.discordName} className="truncate max-w-[150px]">
+                    {userDisplay.discordName}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Friends</span>
-                  <span>{user.friends}</span>
+                  <span>{userDisplay.friends}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Listings</span>
-                  <span>{user.marketplaceListings}</span>
+                  <span>{userDisplay.marketplaceListings}</span>
                 </div>
               </div>
 
-              <Button className="w-full" variant="secondary">Edit Profile</Button>
+              <Link href="/profile" className="block w-full">
+                <Button className="w-full" variant="secondary">Edit Profile</Button>
+              </Link>
             </CardContent>
           </Card>
 
@@ -131,7 +141,7 @@ export default function Home() {
             <CardContent className="p-4 space-y-4">
               <div className="flex gap-4">
                 <Avatar>
-                  <AvatarFallback>{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>{userDisplay.username.slice(0, 2).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <Input
