@@ -29,6 +29,7 @@ model User {
   // ... Character relation
   factionJoined FactionMember?
   ownedFaction  Faction?
+  applications  FactionApplication[]
   
   characters    Character[]
   
@@ -80,6 +81,7 @@ model FactionApplication {
   status    String   @default("PENDING") // PENDING, REJECTED (Accepted deletes this and makes Member)
   
   faction   Faction  @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   createdAt DateTime @default(now())
 }
