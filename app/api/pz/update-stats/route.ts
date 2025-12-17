@@ -11,7 +11,7 @@ export async function POST(req: Request) {
         }
 
         const body = await req.json()
-        const { username, charName, stats } = body
+        const { username, charName, stats, faction, isLeader } = body
         // stats = { zombiesKilled, hoursSurvived, profession, traits: [] }
 
         if (!username || !charName) {
@@ -24,10 +24,79 @@ export async function POST(req: Request) {
         })
 
         if (!user) {
-            // Stats came in for a user who hasn't linked yet?
-            // Optionally we could create a user placeholder, but for now we ignore.
+            // Stats came in for a user who hasn't linked yet
             return new NextResponse("User not linked/found", { status: 404 })
         }
+
+        // --- FACTION SYNC LOGIC ---
+        if (faction) {
+            // Check if faction exists
+            let dbFaction = await prisma.faction.findUnique({ where: { name: faction } })
+
+            if (!dbFaction) {
+                // Faction doesn't exist in DB.
+                // Only create if the current user is the LEADER.
+                if (isLeader) {
+                    try {
+                        dbFaction = await prisma.faction.create({
+                            data: {
+                                name: faction,
+                                ownerId: user.id,
+                                members: {
+                                    create: {
+                                        userId: user.id,
+                                        role: "LEADER"
+                                    }
+                                }
+                            }
+                        })
+                        console.log(`[PZ] Created new faction: ${faction} by ${username}`)
+                    } catch (e) {
+                        console.error(`[PZ] Failed to create faction ${faction}`, e)
+                    }
+                }
+            } else {
+                // Faction Exists. Sync Membership.
+                const member = await prisma.factionMember.findUnique({
+                    where: { userId: user.id }
+                })
+
+                if (member) {
+                    if (member.factionId !== dbFaction.id) {
+                        // User switched factions
+                        await prisma.factionMember.update({
+                            where: { id: member.id },
+                            data: { factionId: dbFaction.id, role: isLeader ? "LEADER" : "MEMBER" }
+                        })
+                    } else {
+                        // Same faction, check role
+                        if (isLeader && member.role !== "LEADER") {
+                            await prisma.factionMember.update({
+                                where: { id: member.id },
+                                data: { role: "LEADER" }
+                            })
+                            // Ensure Faction Owner is correct
+                            if (dbFaction.ownerId !== user.id) {
+                                await prisma.faction.update({
+                                    where: { id: dbFaction.id },
+                                    data: { ownerId: user.id }
+                                })
+                            }
+                        }
+                    }
+                } else {
+                    // Start new membership
+                    await prisma.factionMember.create({
+                        data: {
+                            userId: user.id,
+                            factionId: dbFaction.id,
+                            role: isLeader ? "LEADER" : "MEMBER"
+                        }
+                    })
+                }
+            }
+        }
+        // --- END FACTION SYNC ---
 
         // 2. Find ACTIVE Character for this user
         const activeChar = await prisma.character.findFirst({
@@ -62,7 +131,6 @@ export async function POST(req: Request) {
                         hoursSurvived: stats.hoursSurvived || 0,
                         profession: stats.profession || null,
                         traits: stats.traits || []
-                        // bornAt default now
                     }
                 })
             } else {

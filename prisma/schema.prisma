@@ -25,10 +25,71 @@ model User {
   accounts      Account[]
   sessions      Session[]
   posts         Post[]
+  // ... Character relation
+  // ... Character relation
+  factionJoined FactionMember?
+  ownedFaction  Faction?
+  
   characters    Character[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+// ... (other models) ...
+
+enum FactionRole {
+  LEADER
+  MODERATOR
+  MEMBER
+}
+
+model Faction {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  
+  // Who owns it?
+  ownerId     String   @unique
+  owner       User     @relation(fields: [ownerId], references: [id])
+  
+  members     FactionMember[]
+  applications FactionApplication[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model FactionMember {
+  id        String      @id @default(cuid())
+  factionId String
+  userId    String      @unique // One faction per user
+  role      FactionRole @default(MEMBER)
+  
+  faction   Faction     @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  joinedAt  DateTime    @default(now())
+}
+
+model FactionApplication {
+  id        String   @id @default(cuid())
+  factionId String
+  userId    String
+  message   String?
+  status    String   @default("PENDING") // PENDING, REJECTED (Accepted deletes this and makes Member)
+  
+  faction   Faction  @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
+model PendingCommand {
+  id        String   @id @default(cuid())
+  type      String   // e.g. "ADD_MEMBER"
+  payload   String   // JSON or Pipeline separated format: "username|factionName"
+  processed Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model Account {

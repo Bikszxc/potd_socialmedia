@@ -33,14 +33,26 @@ function POTD.Stats.Collect()
                 table.insert(stats.traits, traits:get(j))
             end
             
-            -- Convert to JSON
-            -- PZ Lua doesn't have a built-in JSON library exposed by default easily, 
-            -- so we construct it manually since it's simple structure.
-            -- Be careful with string escaping if names have quotes.
+            -- Faction Data
+            local factionObj = Faction.getPlayerFaction(player)
+            local factionName = nil
+            local isLeader = false
             
+            if factionObj then
+                factionName = factionObj:getName()
+                isLeader = factionObj:isOwner(username)
+            end
+
+            -- Convert to JSON
             local json = "{"
             json = json .. '"username":"' .. stats.username .. '",'
             json = json .. '"charName":"' .. stats.charName .. '",'
+            
+            if factionName then
+                json = json .. '"faction":"' .. factionName .. '",'
+                json = json .. '"isLeader":' .. tostring(isLeader) .. ','
+            end
+
             json = json .. '"stats":{'
             json = json .. '"zombiesKilled":' .. stats.zombiesKilled .. ','
             json = json .. '"hoursSurvived":' .. stats.hoursSurvived .. ','
