@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import FactionDashboard from "@/components/faction/faction-dashboard"
 import FactionBrowser from "@/components/faction/faction-browser"
+import { Header } from "@/components/layout/header"
 
 export default async function FactionPage() {
     const session = await getServerSession(authOptions)
@@ -32,20 +33,26 @@ export default async function FactionPage() {
         }
     })
 
-    if (membership && membership.faction) {
-        // User is in a faction. Show Dashboard.
-        // Transform Dates to strings/ISO if needed for Client Component serialization?
-        // Server Components pass Dates fine now usually, but let's be safe if issues arise.
-        // Actually Next.js 13+ passes Dates fine.
-
-        return (
+    return (
+        <div className="min-h-screen bg-background text-foreground">
+            <Header />
             <div className="container mx-auto px-4 py-8">
-                <FactionDashboard faction={membership.faction} role={membership.role} />
+                {membership && membership.faction ? (
+                    <FactionDashboard faction={membership.faction} role={membership.role} />
+                ) : (
+                    // Refetch factions for the browser if not in one
+                    // We can do this inline since it's a Server Component
+                    // But wait, we need to pass data.
+                    // Let's optimize: fetch factions only if needed.
+                    <BrowserWrapper />
+                )}
             </div>
-        )
-    }
+        </div>
+    )
+}
 
-    // User is NOT in a faction. Show Browser.
+// Helper component to fetch data for the browser part
+async function BrowserWrapper() {
     const factions = await prisma.faction.findMany({
         include: {
             _count: { select: { members: true } }
@@ -53,9 +60,5 @@ export default async function FactionPage() {
         orderBy: { members: { _count: "desc" } }
     })
 
-    return (
-        <div className="container mx-auto px-4 py-8">
-            <FactionBrowser factions={factions} />
-        </div>
-    )
+    return <FactionBrowser factions={factions} />
 }
